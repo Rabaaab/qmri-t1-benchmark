@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Data and results: regenerable, and far too big for git.
+# The simulator is the source of truth, not its output.
+data/*
+!data/.gitkeep
+outputs/*
+!outputs/.gitkeep
+
+# Model checkpoints
+*.pt
+*.pth
+*.ckpt
+
+# Large arrays
+*.npy
+*.npz
+*.nii
+*.nii.gz
+*.mnc
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store

@@ -1,0 +1,14 @@
+# Week 1-2: simulator, classical baselines, figures. Already installed.
+numpy>=1.26
+scipy>=1.11
+matplotlib>=3.8
+
+# Week 2+: tests
+pytest>=8.0
+
+# Week 3+: networks. Install when you get there (torch is a ~2.5 GB download).
+# torch>=2.2
+
+# Optional: reading BrainWeb / NIfTI phantoms. The procedural phantom
+# needs none of this.
+# nibabel>=5.2

@@ -1,0 +1,7 @@
+# Normalise line endings so the repo is identical on Windows, Linux and
+# Colab. Without this, a file edited on Windows and run on a cluster shows
+# up as entirely rewritten in the diff.
+* text=auto eol=lf
+*.png binary
+*.npy binary
+*.nii binary
