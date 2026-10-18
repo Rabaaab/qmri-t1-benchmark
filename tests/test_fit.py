@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from qmri.fit import despot1_linear, fit_image, fit_voxel
-from qmri.forward import rician_noise, spgr_signal
+from qmri.forward import rician_noise, sigma_for_snr, spgr_signal
 
 ANGLES = [2.0, 5.0, 10.0, 15.0, 20.0]
 TR = 15.0
@@ -116,6 +116,40 @@ def test_noise_increases_scatter():
         return float(np.nanstd(vals))
 
     assert scatter(1000.0 / 500.0) < scatter(1000.0 / 50.0)
+
+
+# --- the runtime / precision trade --------------------------------------
+
+
+def test_default_tolerance_does_not_move_the_answer():
+    """The default tolerance buys speed with precision nobody needs.
+
+    A whole-image fit is tens of thousands of independent optimisations, so
+    convergence tolerance is the single biggest lever on runtime. The
+    default must still agree with an essentially exact solve far more
+    closely than noise ever will.
+    """
+    signals = spgr_signal(ANGLES, TR, 832.0, s0=1000.0)
+
+    exact = fit_voxel(signals, ANGLES, TR, tol=1e-14)
+    default = fit_voxel(signals, ANGLES, TR)
+
+    assert default.t1 == pytest.approx(exact.t1, rel=1e-8)
+
+
+def test_default_tolerance_is_cheaper_than_a_tight_one():
+    # The point of the default is fewer solver iterations. If this stops
+    # being true the tolerance has stopped earning its place.
+    rng = np.random.default_rng(5)
+    clean = spgr_signal(ANGLES, TR, 1331.0, s0=1000.0)
+    noisy = rician_noise(clean, sigma_for_snr(float(clean[2]), 100.0), rng)
+
+    default = fit_voxel(noisy, ANGLES, TR)
+    exact = fit_voxel(noisy, ANGLES, TR, tol=1e-14)
+
+    assert default.nfev < exact.nfev
+    # and the two answers still agree far inside the noise scatter
+    assert default.t1 == pytest.approx(exact.t1, rel=1e-4)
 
 
 # --- image-level plumbing --------------------------------------------------

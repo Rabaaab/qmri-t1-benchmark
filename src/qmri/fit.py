@@ -35,6 +35,21 @@ __all__ = ["despot1_linear", "fit_voxel", "fit_image", "FitResult"]
 # optimiser never parks a solution on the boundary and calls it a fit.
 T1_BOUNDS_MS = (1.0, 10_000.0)
 
+# Convergence tolerance for the nonlinear fit, measured rather than guessed.
+# Benchmarked on 400 voxels at SNR 100, relative to a 1e-14 reference:
+#
+#     tol     ms/voxel   speedup   max drift in T1
+#     1e-14     14.3       1.0x        --
+#     1e-10      5.1       2.8x       5e-07
+#     1e-08      4.8       3.0x       6e-05
+#     1e-06      4.6       3.1x       5e-03
+#
+# 1e-10 is the knee: nearly all the speed, and a drift four orders of
+# magnitude below the noise-driven scatter (tens of ms) that the study
+# actually measures. 1e-6 starts to corrupt the bias figures themselves,
+# which are the result. Tighten it per call if you need an exact round trip.
+DEFAULT_TOL = 1e-10
+
 
 class FitResult(NamedTuple):
     """Outcome of a single-voxel fit. T1 and S0 are NaN when the fit failed."""
@@ -121,6 +136,7 @@ def fit_voxel(
     t1_init=None,
     s0_init=None,
     t1_bounds=T1_BOUNDS_MS,
+    tol=DEFAULT_TOL,
 ):
     """Nonlinear least-squares T1 and S0 for a single voxel.
 
@@ -140,6 +156,11 @@ def fit_voxel(
         which is both faster and more robust than a fixed starting point.
     t1_bounds : (float, float), optional
         Search interval for T1 in milliseconds.
+    tol : float, optional
+        Convergence tolerance, applied to all three of ``xtol``, ``ftol``
+        and ``gtol``. See :data:`DEFAULT_TOL` for the measurements behind
+        the default. This is the single biggest lever on runtime, because a
+        whole-image fit is tens of thousands of independent optimisations.
 
     Returns
     -------
@@ -179,9 +200,9 @@ def fit_voxel(
             x0=[t1_init, s0_init],
             bounds=([lo, 0.0], [hi, np.inf]),
             method="trf",
-            xtol=1e-14,
-            ftol=1e-14,
-            gtol=1e-14,
+            xtol=tol,
+            ftol=tol,
+            gtol=tol,
         )
     except (ValueError, FloatingPointError):
         return FitResult(np.nan, np.nan, False, 0)

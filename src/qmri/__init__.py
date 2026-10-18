@@ -7,6 +7,7 @@ from qmri.forward import (
     spgr_signal,
 )
 from qmri.fit import FitResult, despot1_linear, fit_image, fit_voxel
+from qmri.phantom import Phantom, procedural_brain
 
 __all__ = [
     "spgr_signal",
@@ -17,4 +18,6 @@ __all__ = [
     "fit_voxel",
     "fit_image",
     "FitResult",
+    "procedural_brain",
+    "Phantom",
 ]
