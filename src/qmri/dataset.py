@@ -31,7 +31,14 @@ import numpy as np
 from qmri.forward import rician_noise, sigma_for_snr, smooth_b1_field, spgr_signal
 from qmri.phantom import Lesion, insert_lesions, procedural_brain
 
-__all__ = ["Dataset", "generate_split", "build_splits", "normalise_per_voxel"]
+__all__ = [
+    "Dataset",
+    "generate_split",
+    "build_splits",
+    "normalise_per_voxel",
+    "to_voxel_table",
+    "scatter_to_maps",
+]
 
 DEFAULT_ANGLES = (2.0, 5.0, 10.0, 15.0, 20.0)
 DEFAULT_TR = 15.0
@@ -308,3 +315,73 @@ def build_splits(
             **kwargs,
         ),
     }
+
+
+def to_voxel_table(
+    dataset: Dataset, *, normalise: bool = True, include_b1: bool = True
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Flatten a dataset into a per-voxel feature table.
+
+    This is the MLP's view of the world, and the point of the MLP: it sees
+    one voxel at a time, exactly like the classical fit, so any advantage it
+    shows over that fit comes from *learning* rather than from spatial
+    context. The U-Net gets the images instead, and the difference between
+    the two is the contribution of context.
+
+    Background voxels are dropped. They carry no T1 and would otherwise be
+    most of the training set.
+
+    Parameters
+    ----------
+    dataset : Dataset
+    normalise : bool
+        Scale-normalise each voxel's flip-angle vector. See
+        :func:`normalise_per_voxel` for why this matters.
+    include_b1 : bool
+        Append the transmit field as a feature. On by default, because the
+        corrected classical baseline is handed B1 and the comparison has to
+        be fair.
+
+    Returns
+    -------
+    (features, targets, mask)
+        ``features`` has shape ``(n_voxels, n_angles [+ 1])``, ``targets``
+        is T1 in milliseconds, and ``mask`` is the ``(N, H, W)`` boolean
+        array needed to put predictions back on a grid. The row order of
+        ``features`` matches ``np.flatnonzero(mask)``.
+    """
+    images = (
+        normalise_per_voxel(dataset.images)
+        if normalise
+        else dataset.images.astype(np.float32)
+    )
+    mask = dataset.mask
+
+    # (N, A, H, W) -> (n_voxels, A), keeping only tissue.
+    features = images.transpose(0, 2, 3, 1)[mask]
+    if include_b1:
+        features = np.concatenate(
+            [features, dataset.b1[mask][:, None].astype(np.float32)], axis=1
+        )
+
+    targets = dataset.t1[mask].astype(np.float32)
+    return np.ascontiguousarray(features), targets, mask
+
+
+def scatter_to_maps(
+    values: np.ndarray, mask: np.ndarray, fill: float = np.nan
+) -> np.ndarray:
+    """Put per-voxel predictions back onto the image grid.
+
+    Inverse of the flattening done by :func:`to_voxel_table`; ``values`` must
+    be in the same order its ``features`` were.
+    """
+    values = np.asarray(values).ravel()
+    n_expected = int(np.count_nonzero(mask))
+    if values.size != n_expected:
+        raise ValueError(
+            f"got {values.size} values for {n_expected} masked voxels"
+        )
+    maps = np.full(mask.shape, fill, dtype=np.float32)
+    maps[mask] = values
+    return maps

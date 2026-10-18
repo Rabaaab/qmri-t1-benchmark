@@ -41,7 +41,7 @@ than those seen in training.
 - [x] Verification: noiseless round-trip recovers T1 to machine precision
 - [x] 2D digital phantom, and the first end-to-end result (below)
 - [x] Dataset generator with leak-proof splits
-- [ ] MLP
+- [x] MLP (per-voxel control) — see "Second result" below
 - [ ] U-Net
 - [ ] Lesion retention experiment
 - [ ] Out-of-distribution B1 test
@@ -93,6 +93,47 @@ python scripts/day1_signal_curve.py
 
 Writes `outputs/day1_signal_curve.png`: signal against flip angle for several
 T1 values, which is the curve the whole method rests on.
+
+## Second result: the thesis, without any spatial context
+
+Per-voxel MLP, trained on lesion-free anatomy, tested on lesioned anatomy.
+Bias and SD in ms over the 40-phantom test split:
+
+| tissue | true T1 | fit, no B1 | SD | fit, with B1 | SD | MLP | SD |
+|---|---|---|---|---|---|---|---|
+| white matter | 832 | +66.5 | 34.3 | +0.3 | 20.2 | **−1.1** | **16.8** |
+| grey matter | 1331 | +47.7 | 65.1 | +0.5 | 33.5 | **−1.4** | **29.5** |
+| CSF | 4000 | +113.1 | 275.9 | +1.8 | 139.6 | **+0.1** | **102.1** |
+| lesion | 1201 | +102.5 | 46.1 | +0.1 | 30.8 | **+25.5** | 27.2 |
+
+On every tissue it trained on, the MLP beats the corrected classical fit:
+same bias, 12–27% less scatter. On the lesion — the one tissue it never saw
+— it carries a **+25.5 ms bias** where the classical fit has +0.1.
+
+Collapsing bias and scatter into one number makes the point sharp:
+
+| region | fit, with B1 | MLP |
+|---|---|---|
+| whole image RMSE | 70.7 | **53.1** |
+| lesions only RMSE | **30.8** | 37.3 |
+
+The MLP is 25% better overall and 21% worse on the thing a radiologist
+needed to see. Lesions are 2.15% of tissue voxels, so the whole-image
+number is dominated by the regions where it wins and hides the failure
+completely.
+
+Two things worth noting. First, this is the project's central claim
+demonstrated with **no spatial context whatsoever** — a per-voxel network
+cannot smooth. So this is the *training-prior* mechanism (the "sink" effect
+of Gyori et al. 2022), cleanly separated from the *spatial smoothing* that
+the U-Net will add on top. Those are two distinct failure modes and this
+design can tell them apart.
+
+Second, caveats: one seed, one training run, no repetitions. The direction
+of the bias (upward, toward the grey-matter mode at 1331 ms) is *consistent*
+with a training-prior sink but that mechanism has not been tested. And
+"bias within the lesion mask" is not yet a retention metric — it is
+contaminated by partial volume at the lesion edge. See `docs/literature.md`.
 
 ## Build the dataset
 
