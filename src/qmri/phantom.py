@@ -28,10 +28,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from scipy import ndimage
 
-from qmri.tissues import TISSUES_3T, Tissue
+from qmri.tissues import LESION_3T, TISSUES_3T, Tissue
 
-__all__ = ["Phantom", "procedural_brain"]
+__all__ = ["Phantom", "procedural_brain", "Lesion", "insert_lesions"]
 
 
 @dataclass(frozen=True)
@@ -149,3 +150,126 @@ def procedural_brain(
         pd[where] = tissue.pd
 
     return Phantom(labels=labels, t1=t1, pd=pd)
+
+
+@dataclass(frozen=True)
+class Lesion:
+    """One inserted lesion, recorded so its fate can be measured.
+
+    Retention has to be scored per lesion and binned by size, because the
+    whole hypothesis is that small ones vanish while large ones survive. A
+    single average over all lesions would hide exactly the effect.
+    """
+
+    row: int
+    col: int
+    radius_px: float
+    t1_ms: float
+
+    @property
+    def area_px(self) -> float:
+        return float(np.pi * self.radius_px**2)
+
+
+def _disc(shape, centre_px, radius_px) -> np.ndarray:
+    """Boolean mask of a filled disc, in pixel coordinates."""
+    rows, cols = np.ogrid[: shape[0], : shape[1]]
+    return (rows - centre_px[0]) ** 2 + (cols - centre_px[1]) ** 2 <= radius_px**2
+
+
+def insert_lesions(
+    phantom: Phantom,
+    rng: np.random.Generator,
+    n_lesions: int = 4,
+    radius_px: tuple[float, float] = (1.0, 6.0),
+    host_label: int = 1,
+    lesion: Tissue = LESION_3T,
+) -> tuple[Phantom, list[Lesion]]:
+    """Paste synthetic lesions into the host tissue of an existing phantom.
+
+    Lesions belong in the **test set only**. A network that saw lesions in
+    training would learn to preserve them, which is a different and much
+    easier question than the one this project asks: what happens to a
+    structure the model has never been given a reason to keep.
+
+    Each lesion is placed fully inside the host tissue, far enough from its
+    boundary that the surrounding context is uniform. A lesion straddling
+    the grey/white boundary would confound retention with edge behaviour.
+
+    Parameters
+    ----------
+    phantom : Phantom
+        The clean phantom to modify. It is not mutated; a new one is
+        returned.
+    rng : numpy.random.Generator
+        Controls count, placement and size.
+    n_lesions : int
+        How many to attempt. Lesions that cannot be placed without touching
+        the host boundary are skipped, so the returned list may be shorter.
+    radius_px : (float, float)
+        Inclusive range of lesion radii in pixels. The default spans roughly
+        2 to 12 pixels across, which brackets the size at which the
+        hypothesis says a CNN starts erasing them.
+    host_label : int
+        Tissue the lesions sit inside. White matter by default.
+    lesion : Tissue
+        Properties of the lesion tissue, including its label.
+
+    Returns
+    -------
+    (phantom, lesions)
+        A new Phantom with the lesions painted in, and the record of what
+        was inserted.
+    """
+    if n_lesions < 0:
+        raise ValueError(f"n_lesions must be non-negative, got {n_lesions}")
+    lo, hi = float(radius_px[0]), float(radius_px[1])
+    if not 0 < lo <= hi:
+        raise ValueError(f"radius_px must be positive and ordered, got {radius_px}")
+
+    labels = phantom.labels.copy()
+    t1 = phantom.t1.copy()
+    pd = phantom.pd.copy()
+
+    # Shrinks as lesions are placed, so two can never overlap or touch.
+    # Overlapping lesions would merge into one larger structure and destroy
+    # the per-lesion, per-size retention scoring the project depends on.
+    available = phantom.labels == host_label
+
+    placed: list[Lesion] = []
+    for _ in range(n_lesions):
+        radius = float(rng.uniform(lo, hi))
+        # Only centres this far inside the available region leave the lesion
+        # fully surrounded by uniform host tissue.
+        margin = int(np.ceil(radius)) + 1
+        interior = ndimage.binary_erosion(
+            available, structure=np.ones((3, 3), dtype=bool), iterations=margin
+        )
+        candidates = np.flatnonzero(interior)
+        if candidates.size == 0:
+            continue  # no room left for a lesion this large
+
+        flat = int(rng.choice(candidates))
+        row, col = np.unravel_index(flat, labels.shape)
+        disc = _disc(labels.shape, (row, col), radius)
+
+        labels[disc] = lesion.label
+        n = int(np.count_nonzero(disc))
+        jitter = rng.normal(0.0, lesion.t1_spread_ms, size=n)
+        t1[disc] = np.maximum(lesion.t1_ms + jitter, 1.0)
+        pd[disc] = lesion.pd
+
+        # Claim the lesion plus a one-pixel gap, so the next one cannot
+        # touch it.
+        available[_disc(labels.shape, (row, col), radius + 1.0)] = False
+
+        placed.append(
+            Lesion(
+                row=int(row),
+                col=int(col),
+                radius_px=radius,
+                t1_ms=float(t1[disc].mean()),
+            )
+        )
+
+    return Phantom(labels=labels, t1=t1, pd=pd), placed

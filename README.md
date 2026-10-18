@@ -40,6 +40,7 @@ than those seen in training.
 - [x] Voxel-wise NLLS fit, with and without B1 correction
 - [x] Verification: noiseless round-trip recovers T1 to machine precision
 - [x] 2D digital phantom, and the first end-to-end result (below)
+- [x] Dataset generator with leak-proof splits
 - [ ] MLP
 - [ ] U-Net
 - [ ] Lesion retention experiment
@@ -92,6 +93,40 @@ python scripts/day1_signal_curve.py
 
 Writes `outputs/day1_signal_curve.png`: signal against flip angle for several
 T1 values, which is the curve the whole method rests on.
+
+## Build the dataset
+
+```
+python scripts/build_dataset.py
+```
+
+120 training, 20 validation and 40 test phantoms at 128x128, in about four
+seconds, written to `data/` (gitignored) and reproducible from `--seed`
+alone. Pass `--n-train 8 --n-val 4 --n-test 4` for a quick look.
+
+Two rules are enforced in code rather than left to memory, because breaking
+either one is silent -- the code runs, the figures look good, the study is
+worthless:
+
+**One phantom is one subject.** Splits are by phantom, never by slice or by
+voxel. Adjacent slices of the same head are nearly identical, so a
+slice-level split leaks the test set into training and every reported error
+comes out flatteringly low. The three splits draw from independent child
+streams of one root seed, and `test_splits_share_no_phantom` checks that no
+anatomy crosses the line.
+
+**Lesions appear in the test set only.** This is the experiment, not a
+default. A network shown lesions during training learns to preserve them,
+which answers a far easier question than the one being asked: what happens
+to a small structure the model was never given a reason to keep?
+
+Inputs are scale-normalised per voxel (`normalise_per_voxel`). T1 lives in
+the *shape* of the signal-versus-flip-angle curve, not its height -- S0
+absorbs proton density and coil sensitivity. Feeding raw magnitudes would
+let a network shortcut by recognising a tissue from its brightness and
+recalling that tissue's T1, which is memorising anatomy rather than
+estimating a parameter, and it would collapse on a lesion whose brightness
+it had never seen.
 
 ## Reproduce the Day 3 figure
 

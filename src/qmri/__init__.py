@@ -6,8 +6,14 @@ from qmri.forward import (
     smooth_b1_field,
     spgr_signal,
 )
+from qmri.dataset import (
+    Dataset,
+    build_splits,
+    generate_split,
+    normalise_per_voxel,
+)
 from qmri.fit import FitResult, despot1_linear, fit_image, fit_voxel
-from qmri.phantom import Phantom, procedural_brain
+from qmri.phantom import Lesion, Phantom, insert_lesions, procedural_brain
 
 __all__ = [
     "spgr_signal",
@@ -20,4 +26,10 @@ __all__ = [
     "FitResult",
     "procedural_brain",
     "Phantom",
+    "Lesion",
+    "insert_lesions",
+    "Dataset",
+    "generate_split",
+    "build_splits",
+    "normalise_per_voxel",
 ]
