@@ -11,7 +11,7 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from qmri.dataset import generate_split, to_voxel_table
-from qmri.models import VoxelMLP, to_ms, to_scaled
+from qmri.models import UNet, VoxelMLP, receptive_field_px, to_ms, to_scaled
 from qmri.training import TrainConfig, train
 
 
@@ -189,3 +189,103 @@ def test_history_records_the_best_epoch():
 
     assert 0 <= history.best_epoch < history.epochs_run
     assert history.best_val_loss == min(history.val_loss)
+
+
+# --- the U-Net -------------------------------------------------------------
+
+
+def test_unet_returns_one_map_per_image():
+    net = UNet(in_channels=6, base_channels=8, depth=2)
+    assert net(torch.randn(3, 6, 64, 64)).shape == (3, 64, 64)
+
+
+def test_unet_output_is_always_positive():
+    # Same physical constraint as the MLP, so neither model is allowed a
+    # value the classical fit could not produce.
+    net = UNet(in_channels=6, base_channels=8, depth=2)
+    assert bool((net(torch.randn(2, 6, 32, 32) * 40.0) > 0).all())
+
+
+def test_unet_handles_sizes_that_are_not_powers_of_two():
+    # 50 does not divide by 4, so the decoder must pad rather than crash.
+    net = UNet(in_channels=6, base_channels=8, depth=2)
+    assert net(torch.randn(1, 6, 50, 50)).shape == (1, 50, 50)
+
+
+def test_unet_handles_non_square_images():
+    net = UNet(in_channels=6, base_channels=8, depth=2)
+    assert net(torch.randn(1, 6, 40, 56)).shape == (1, 40, 56)
+
+
+def test_unet_rejects_invalid_configuration():
+    with pytest.raises(ValueError, match="non-negative"):
+        UNet(depth=-1)
+    with pytest.raises(ValueError, match="at least 1"):
+        UNet(base_channels=0)
+
+
+def test_unet_predict_ms_returns_milliseconds():
+    net = UNet(in_channels=6, base_channels=8, depth=1)
+    out = net.predict_ms(torch.randn(1, 6, 32, 32))
+    assert out.shape == (1, 32, 32)
+    assert bool((out > 0).all())
+
+
+# --- receptive field: the number that makes the ablation mean something ----
+
+
+def test_receptive_field_is_never_zero_for_a_real_network():
+    """Regression test.
+
+    An all-zero probe leaves every ReLU exactly at its kink, where the
+    gradient is defined as zero, so nothing propagates and the measurement
+    silently returns 0. Probes must be random.
+    """
+    net = UNet(in_channels=6, base_channels=8, depth=4)
+    assert receptive_field_px(net, size=256) > 1
+
+
+def test_receptive_field_grows_with_depth():
+    """Depth is the independent variable, and this is what it controls.
+
+    Each level halves the image, so a deeper network draws on a wider
+    region -- which is the distance over which it is able to smooth a
+    lesion away.
+    """
+    fields = [
+        receptive_field_px(UNet(in_channels=6, base_channels=8, depth=d), 256)
+        for d in (0, 1, 2, 3)
+    ]
+    assert fields == sorted(fields)
+    assert len(set(fields)) == len(fields)  # strictly increasing
+
+
+def test_shallowest_network_is_almost_local():
+    # depth 0 has no downsampling at all: two 3x3 convolutions, so it sees
+    # five pixels across. It is the extra control at the local end.
+    net = UNet(in_channels=6, base_channels=8, depth=0)
+    assert receptive_field_px(net, size=64) == 5
+
+
+def test_receptive_field_warns_when_clipped_by_the_probe():
+    # A silently clipped value would understate how far a deep network can
+    # smooth, and quietly weaken the ablation.
+    net = UNet(in_channels=6, base_channels=8, depth=4)
+    with pytest.warns(UserWarning, match="lower bound"):
+        receptive_field_px(net, size=32)
+
+
+def test_receptive_field_is_reproducible():
+    net = UNet(in_channels=6, base_channels=8, depth=2)
+    assert receptive_field_px(net, 128, seed=3) == receptive_field_px(
+        net, 128, seed=3
+    )
+
+
+def test_receptive_field_leaves_training_mode_untouched():
+    # It flips the model to eval to stop BatchNorm mixing the batch; it must
+    # put it back, or a later training run silently behaves differently.
+    net = UNet(in_channels=6, base_channels=8, depth=1)
+    net.train()
+    receptive_field_px(net, 64)
+    assert net.training
