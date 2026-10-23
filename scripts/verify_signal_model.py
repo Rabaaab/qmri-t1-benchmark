@@ -1,10 +1,10 @@
-"""Day 1: plot signal against flip angle and check it looks like the physics.
+"""Plot signal against flip angle and check it matches the physics.
 
 Run with:
 
-    python scripts/day1_signal_curve.py
+    python scripts/verify_signal_model.py
 
-Writes ``outputs/day1_signal_curve.png`` and prints a noiseless round-trip
+Writes ``outputs/signal_curves.png`` and prints a noiseless round-trip
 check to the console.
 
 What you are looking for in the left panel: each curve rises, peaks at its
@@ -35,7 +35,7 @@ from qmri.tissues import TISSUES_3T
 
 TR = 15.0  # ms
 SAMPLED_ANGLES = [2.0, 5.0, 10.0, 15.0, 20.0]  # degrees
-OUT = ROOT / "outputs" / "day1_signal_curve.png"
+OUT = ROOT / "outputs" / "signal_curves.png"
 
 # White matter, grey matter, CSF -- skip the background label.
 TISSUES = [t for t in TISSUES_3T if t.t1_ms > 0]

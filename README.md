@@ -41,12 +41,12 @@ than those seen in training.
 - [x] Verification: noiseless round-trip recovers T1 to machine precision
 - [x] 2D digital phantom, and the first end-to-end result (below)
 - [x] Dataset generator with leak-proof splits
-- [x] MLP (per-voxel control) — see "Second result" below
+- [x] MLP (per-voxel control) — see the result below
 - [ ] U-Net
 - [ ] Lesion retention experiment
 - [ ] Out-of-distribution B1 test
 
-## First result
+## What ignoring B1 costs
 
 128x128 phantom, 5 flip angles, TR 15 ms, SNR 100, B1 spanning 0.85 to 1.08.
 The same five images fitted twice, scored against the known truth (ms):
@@ -85,16 +85,16 @@ noise and a known B1, the fit must return the T1 that generated the signal to
 ~1e-9 relative error. If it does not, the forward model and the fit disagree
 about the physics and every downstream result is meaningless.
 
-## Reproduce the Day 1 figure
+## Plot the signal curves
 
 ```
-python scripts/day1_signal_curve.py
+python scripts/verify_signal_model.py
 ```
 
-Writes `outputs/day1_signal_curve.png`: signal against flip angle for several
+Writes `outputs/signal_curves.png`: signal against flip angle for several
 T1 values, which is the curve the whole method rests on.
 
-## Second result: the thesis, without any spatial context
+## The per-voxel MLP: better everywhere except where it matters
 
 Per-voxel MLP, trained on lesion-free anatomy, tested on lesioned anatomy.
 Bias and SD in ms over the 40-phantom test split:
@@ -169,30 +169,42 @@ recalling that tissue's T1, which is memorising anatomy rather than
 estimating a parameter, and it would collapse on a lesion whose brightness
 it had never seen.
 
-## Reproduce the Day 3 figure
+## Fit a single phantom end to end
 
 ```
-python scripts/day3_phantom_fit.py
+python scripts/fit_one_phantom.py
 ```
 
-Writes `outputs/day3_phantom_fit.png` and prints the table above. Takes about
+Writes `outputs/phantom_fit.png` and prints the table above. Takes about
 two minutes: a 128x128 slice is 8,848 voxels and each is fitted twice, as
 17,696 completely independent optimisations that never look at a neighbour.
 That cost is itself a result worth reporting, since a trained network
 evaluates in milliseconds.
 
-If the fitted map resembles the ground truth, the project is safe to build
-on and everything after this is ordinary engineering.
+If the fitted map resembles the ground truth, the simulation loop is sound
+end to end.
 
 ## Layout
 
 ```
-src/qmri/forward.py   signal model, B1, Rician noise
-src/qmri/fit.py       DESPOT1 closed form + nonlinear least squares
-tests/                correctness of the above
-scripts/              one runnable script per figure
-data/                 phantoms (gitignored)
-outputs/              figures and results (gitignored)
+src/qmri/forward.py    signal model, B1 field, Rician noise
+src/qmri/fit.py        DESPOT1 closed form + nonlinear least squares
+src/qmri/phantom.py    procedural brain, lesion insertion
+src/qmri/tissues.py    literature T1 values, with sources
+src/qmri/dataset.py    splits, caching, per-voxel feature tables
+src/qmri/models.py     VoxelMLP (the per-voxel control)
+src/qmri/training.py   shared training loop, early stopping
+
+scripts/verify_signal_model.py  signal curves + noiseless round-trip check
+scripts/fit_one_phantom.py      end-to-end demo on a single phantom
+scripts/build_dataset.py        generate and cache train/val/test
+scripts/fit_baseline.py         classical fits over a split (slow, cached)
+scripts/train_mlp.py            train the MLP and score it
+
+docs/literature.md     search plan and the values still needing citations
+tests/                 correctness of everything in src/
+data/                  datasets and cached fits (gitignored)
+outputs/               figures and trained models (gitignored)
 ```
 
 ## Notes on values

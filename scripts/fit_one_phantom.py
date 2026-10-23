@@ -1,15 +1,14 @@
-"""Day 3: phantom in, T1 map out, next to the truth it came from.
+"""Phantom in, T1 map out, next to the truth it came from.
 
 Run with:
 
-    python scripts/day3_phantom_fit.py
+    python scripts/fit_one_phantom.py
 
-Writes ``outputs/day3_phantom_fit.png`` and prints a per-tissue bias and
+Writes ``outputs/phantom_fit.png`` and prints a per-tissue bias and
 variance table.
 
-This is the gate for the whole project. If the fitted map on the right looks
-like the ground truth on the left, every remaining risk is ordinary
-engineering. If it does not, you have lost three days instead of a semester.
+If the fitted map resembles the ground truth, the simulation loop is sound
+end to end and the remaining risk in the project is ordinary engineering.
 
 The run also produces the first real result: the same data, fitted twice,
 once pretending the scanner delivered the flip angle it promised and once
@@ -46,7 +45,7 @@ SNR = 100.0  # at the white-matter signal, near its Ernst angle
 B1_AMPLITUDE = 0.15  # plausible 3 T transmit inhomogeneity
 SEED = 0
 
-OUT = ROOT / "outputs" / "day3_phantom_fit.png"
+OUT = ROOT / "outputs" / "phantom_fit.png"
 TISSUE_NAMES = {t.label: t.name for t in TISSUES_3T if t.t1_ms > 0}
 
 
@@ -157,7 +156,7 @@ def main() -> int:
         fig.colorbar(im, ax=ax, fraction=0.046, pad=0.03)
 
     fig.suptitle(
-        "Day 3: the same five images, fitted twice. "
+        "The same five images, fitted twice. "
         "The B1 error is smooth and regional, not random.",
         fontsize=11,
     )
