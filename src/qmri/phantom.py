@@ -32,7 +32,13 @@ from scipy import ndimage
 
 from qmri.tissues import LESION_3T, TISSUES_3T, Tissue
 
-__all__ = ["Phantom", "procedural_brain", "Lesion", "insert_lesions"]
+__all__ = [
+    "Phantom",
+    "procedural_brain",
+    "Lesion",
+    "insert_lesions",
+    "disc_mask",
+]
 
 
 @dataclass(frozen=True)
@@ -171,7 +177,7 @@ class Lesion:
         return float(np.pi * self.radius_px**2)
 
 
-def _disc(shape, centre_px, radius_px) -> np.ndarray:
+def disc_mask(shape, centre_px, radius_px) -> np.ndarray:
     """Boolean mask of a filled disc, in pixel coordinates."""
     rows, cols = np.ogrid[: shape[0], : shape[1]]
     return (rows - centre_px[0]) ** 2 + (cols - centre_px[1]) ** 2 <= radius_px**2
@@ -251,7 +257,7 @@ def insert_lesions(
 
         flat = int(rng.choice(candidates))
         row, col = np.unravel_index(flat, labels.shape)
-        disc = _disc(labels.shape, (row, col), radius)
+        disc = disc_mask(labels.shape, (row, col), radius)
 
         labels[disc] = lesion.label
         n = int(np.count_nonzero(disc))
@@ -261,7 +267,7 @@ def insert_lesions(
 
         # Claim the lesion plus a one-pixel gap, so the next one cannot
         # touch it.
-        available[_disc(labels.shape, (row, col), radius + 1.0)] = False
+        available[disc_mask(labels.shape, (row, col), radius + 1.0)] = False
 
         placed.append(
             Lesion(
