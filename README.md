@@ -16,6 +16,31 @@ still report a lower overall error when it does.
 This repository measures that trade-off on simulated data, where the true T1
 is known exactly.
 
+## The answer, in two figures
+
+![Lesion contrast recovered, against lesion size](figures/retention_vs_size.png)
+
+Every method that works **one voxel at a time** returns a flat line: a tiny
+lesion survives as well as a large one, because a method with no neighbours
+has nothing to blur it with. The U-Net bends. It recovers lesions of 8–12
+pixels perfectly and loses roughly 13% of the contrast of the smallest.
+
+The MLP is the control that makes this attributable. It learns from the same
+data, with the same loss, and is also flat — so the difference is **spatial
+context**, not learning.
+
+![Overall error against lesion-only error](figures/overall_vs_lesion_error.png)
+
+And this is why it matters. Judged on the whole image, the U-Net *improves*
+on the proper classical baseline, 58 ms against 71. Judged on lesions alone
+it is far worse, 52 ms against 31. Lesions are about 2% of the voxels, so the
+number almost everyone reports is dominated by the tissue where the method
+does well.
+
+![T1 maps from each method](figures/t1_maps.png)
+
+Regenerate all of these with `python scripts/make_figures.py`.
+
 ## The design
 
 Four estimators, chosen so that a win can be attributed:

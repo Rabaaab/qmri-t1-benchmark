@@ -14,6 +14,11 @@ data/*
 outputs/*
 !outputs/.gitkeep
 
+# figures/ is the opposite: deliberately tracked, so the results are
+# visible on the repository page without running anything.
+!figures/
+!figures/*.png
+
 # Model checkpoints
 *.pt
 *.pth
