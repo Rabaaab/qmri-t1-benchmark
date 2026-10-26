@@ -12,7 +12,7 @@ torch = pytest.importorskip("torch")
 
 from qmri.dataset import generate_split, to_voxel_table
 from qmri.models import UNet, VoxelMLP, receptive_field_px, to_ms, to_scaled
-from qmri.training import TrainConfig, train
+from qmri.training import TrainConfig, masked_mse, train
 
 
 def tiny_table(n=6, shape=(40, 40), seed=0, snr=1e9):
@@ -289,3 +289,65 @@ def test_receptive_field_leaves_training_mode_untouched():
     net.train()
     receptive_field_px(net, 64)
     assert net.training
+
+
+# --- masked loss: fairness between the voxel-wise and spatial models ------
+
+
+def test_masked_mse_matches_plain_mse_without_a_mask():
+    pred = torch.randn(4, 8)
+    target = torch.randn(4, 8)
+    expected = float(torch.nn.functional.mse_loss(pred, target))
+    assert float(masked_mse(pred, target)) == pytest.approx(expected, rel=1e-6)
+
+
+def test_masked_mse_ignores_unmasked_elements():
+    """Background must not contribute, or the comparison is rigged.
+
+    The voxel table drops background before the MLP sees it. A U-Net handed
+    whole images would otherwise bank an easy win on the 46% of pixels that
+    are air, where the right answer is a trivial zero.
+    """
+    pred = torch.tensor([[1.0, 99.0]])
+    target = torch.tensor([[1.0, 0.0]])
+    mask = torch.tensor([[1.0, 0.0]])
+    assert float(masked_mse(pred, target, mask)) == pytest.approx(0.0)
+
+
+def test_masked_mse_divides_by_the_masked_count_not_the_total():
+    # Averaging over all elements would dilute the error by however much
+    # background happened to be in the image.
+    pred = torch.tensor([[3.0, 0.0, 0.0, 0.0]])
+    target = torch.zeros(1, 4)
+    mask = torch.tensor([[1.0, 0.0, 0.0, 0.0]])
+    assert float(masked_mse(pred, target, mask)) == pytest.approx(9.0)
+
+
+def test_masked_mse_survives_an_empty_mask():
+    # A phantom with no tissue would otherwise divide by zero and poison
+    # the whole epoch with NaN.
+    pred, target = torch.ones(1, 4), torch.zeros(1, 4)
+    assert np.isfinite(float(masked_mse(pred, target, torch.zeros(1, 4))))
+
+
+def test_unet_trains_with_a_mask_and_improves():
+    """End-to-end: a spatial model learns through the masked loss."""
+    from qmri.dataset import generate_split, to_image_tensors
+
+    train_ds = generate_split(4, (32, 32), np.random.SeedSequence(0))
+    val_ds = generate_split(2, (32, 32), np.random.SeedSequence(1))
+    tx, ty, tm = to_image_tensors(train_ds)
+    vx, vy, vm = to_image_tensors(val_ds)
+
+    _, history = train(
+        lambda: UNet(in_channels=tx.shape[1], base_channels=8, depth=2),
+        tx,
+        to_scaled(ty),
+        vx,
+        to_scaled(vy),
+        TrainConfig(epochs=8, batch_size=2, patience=99),
+        train_mask=tm,
+        val_mask=vm,
+        verbose=False,
+    )
+    assert history.train_loss[-1] < history.train_loss[0]

@@ -38,6 +38,7 @@ __all__ = [
     "normalise_per_voxel",
     "to_voxel_table",
     "scatter_to_maps",
+    "to_image_tensors",
 ]
 
 DEFAULT_ANGLES = (2.0, 5.0, 10.0, 15.0, 20.0)
@@ -385,3 +386,52 @@ def scatter_to_maps(
     maps = np.full(mask.shape, fill, dtype=np.float32)
     maps[mask] = values
     return maps
+
+
+def to_image_tensors(
+    dataset: Dataset, *, normalise: bool = True, include_b1: bool = True
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Whole images, for a model that uses spatial context.
+
+    The spatial counterpart of :func:`to_voxel_table`. Same measurements,
+    same target, same normalisation -- the only difference is that nothing
+    is flattened, so neighbouring pixels stay neighbours. That difference
+    is the entire experiment.
+
+    The returned mask matters more than it looks. The voxel table silently
+    drops background, so the MLP never spends a single gradient on air. A
+    spatial model is handed whole images and *would* be scored on the
+    background too, where the answer is a trivial zero. Training it that way
+    would let it bank an easy win on 60% of the pixels and would make the
+    comparison meaningless. Pass the mask to the training loop so both
+    models are judged on exactly the same voxels.
+
+    Parameters
+    ----------
+    dataset : Dataset
+    normalise : bool
+        Scale-normalise each voxel's flip-angle vector, as for the MLP.
+    include_b1 : bool
+        Append the transmit field as an extra input channel.
+
+    Returns
+    -------
+    (features, targets, mask)
+        ``features`` is ``(N, n_angles [+1], H, W)``, ``targets`` is
+        ``(N, H, W)`` in milliseconds, ``mask`` is ``(N, H, W)`` and true
+        on tissue.
+    """
+    images = (
+        normalise_per_voxel(dataset.images)
+        if normalise
+        else dataset.images.astype(np.float32)
+    )
+    if include_b1:
+        images = np.concatenate(
+            [images, dataset.b1[:, None].astype(np.float32)], axis=1
+        )
+    return (
+        np.ascontiguousarray(images),
+        dataset.t1.astype(np.float32),
+        dataset.mask,
+    )

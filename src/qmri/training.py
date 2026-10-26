@@ -21,7 +21,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-__all__ = ["TrainConfig", "History", "train"]
+__all__ = ["TrainConfig", "History", "train", "masked_mse"]
 
 
 @dataclass(frozen=True)
@@ -60,6 +60,27 @@ def _as_tensor(array, device):
     return torch.as_tensor(np.asarray(array), dtype=torch.float32, device=device)
 
 
+def masked_mse(prediction, target, mask=None):
+    """Mean squared error over the masked elements only.
+
+    Without a mask this is ordinary MSE. With one, background is excluded
+    from both the numerator and the count, so a spatial model is scored on
+    exactly the voxels a voxel-wise model was trained on.
+
+    This is a fairness requirement, not a refinement. The voxel table drops
+    background before the MLP ever sees it, so the MLP spends no capacity on
+    air. Hand a U-Net whole images and more than half of every picture is
+    background, where the correct answer is a trivial zero -- it would bank
+    an easy win on those pixels, report a far lower loss, and the comparison
+    between the two models would mean nothing.
+    """
+    squared = (prediction - target) ** 2
+    if mask is None:
+        return squared.mean()
+    mask = mask.to(squared.dtype)
+    return (squared * mask).sum() / mask.sum().clamp(min=1.0)
+
+
 def train(
     model: nn.Module | Callable[[], nn.Module],
     train_x,
@@ -68,6 +89,8 @@ def train(
     val_y,
     config: TrainConfig = TrainConfig(),
     *,
+    train_mask=None,
+    val_mask=None,
     verbose: bool = True,
 ) -> tuple[nn.Module, History]:
     """Fit ``model``; return it with the best weights loaded, and its history.
@@ -93,6 +116,10 @@ def train(
     train_x, train_y, val_x, val_y : array_like
         Training and validation data.
     config : TrainConfig
+    train_mask, val_mask : array_like, optional
+        Which elements count toward the loss. Required for a spatial model,
+        so that background is excluded and both models are scored on the
+        same voxels -- see :func:`masked_mse`.
     verbose : bool
         Print a line per epoch.
 
@@ -109,20 +136,22 @@ def train(
     device = torch.device(config.device)
     model = model.to(device)
 
-    train_ds = TensorDataset(
-        _as_tensor(train_x, device), _as_tensor(train_y, device)
+    tensors = [_as_tensor(train_x, device), _as_tensor(train_y, device)]
+    if train_mask is not None:
+        tensors.append(_as_tensor(train_mask, device))
+    loader = DataLoader(
+        TensorDataset(*tensors), batch_size=config.batch_size, shuffle=True
     )
-    loader = DataLoader(train_ds, batch_size=config.batch_size, shuffle=True)
 
     val_x_t = _as_tensor(val_x, device)
     val_y_t = _as_tensor(val_y, device)
+    val_mask_t = None if val_mask is None else _as_tensor(val_mask, device)
 
     optimiser = torch.optim.Adam(
         model.parameters(),
         lr=config.learning_rate,
         weight_decay=config.weight_decay,
     )
-    loss_fn = nn.MSELoss()
 
     history = History()
     best_state = copy.deepcopy(model.state_dict())
@@ -131,9 +160,11 @@ def train(
     for epoch in range(config.epochs):
         model.train()
         running, seen = 0.0, 0
-        for xb, yb in loader:
+        for batch in loader:
+            xb, yb = batch[0], batch[1]
+            mb = batch[2] if len(batch) > 2 else None
             optimiser.zero_grad()
-            loss = loss_fn(model(xb), yb)
+            loss = masked_mse(model(xb), yb, mb)
             loss.backward()
             optimiser.step()
             running += float(loss.detach()) * len(xb)
@@ -142,7 +173,7 @@ def train(
 
         model.eval()
         with torch.no_grad():
-            val_loss = float(loss_fn(model(val_x_t), val_y_t))
+            val_loss = float(masked_mse(model(val_x_t), val_y_t, val_mask_t))
 
         history.train_loss.append(train_loss)
         history.val_loss.append(val_loss)
