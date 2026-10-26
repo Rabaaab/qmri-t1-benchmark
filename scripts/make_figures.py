@@ -30,17 +30,10 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-import torch
 
-from qmri.dataset import (
-    Dataset,
-    scatter_to_maps,
-    to_image_tensors,
-    to_voxel_table,
-)
+from qmri.dataset import Dataset
 from qmri.evaluate import all_lesion_retention, rmse
-from qmri.models import UNet, VoxelMLP
-from qmri.swin import SwinUNet
+from qmri.methods import load_methods
 
 FIGURES = ROOT / "figures"
 DATA = ROOT / "data"
@@ -55,66 +48,6 @@ COLOURS = {
     "U-Net (local context)": "#d62728",
     "Swin (global context)": "#9467bd",
 }
-
-
-def load_methods(test_set: Dataset) -> dict[str, np.ndarray]:
-    """Every method we can score, as T1 maps over the test split."""
-    methods: dict[str, np.ndarray] = {}
-
-    baseline = DATA / "baseline_test.npz"
-    if baseline.exists():
-        with np.load(baseline) as f:
-            methods["Classical fit (no B1)"] = f["naive"]
-            methods["Classical fit (+B1)"] = f["corrected"]
-
-    mlp_path = OUTPUTS / "mlp.pt"
-    if mlp_path.exists():
-        table_x, _, table_mask = to_voxel_table(test_set)
-        ck = torch.load(mlp_path, weights_only=False)
-        model = VoxelMLP(
-            n_features=table_x.shape[1],
-            hidden=ck["config"].get("hidden", 256),
-            depth=ck["config"].get("depth", 3),
-        )
-        model.load_state_dict(ck["state_dict"])
-        with torch.no_grad():
-            flat = model.predict_ms(torch.as_tensor(table_x)).numpy()
-        methods["MLP (no context)"] = scatter_to_maps(flat, table_mask)
-
-    image_x, _, _ = to_image_tensors(test_set)
-    for path, label, kind in [
-        (OUTPUTS / "unet_d3.pt", "U-Net (local context)", "unet"),
-        (OUTPUTS / "swin_d2.pt", "Swin (global context)", "swin"),
-    ]:
-        if not path.exists():
-            continue
-        ck = torch.load(path, weights_only=False)
-        cfg = ck["config"]
-        if kind == "unet":
-            model = UNet(
-                in_channels=image_x.shape[1],
-                base_channels=cfg["base_channels"],
-                depth=cfg["depth"],
-            )
-        else:
-            model = SwinUNet(
-                in_channels=image_x.shape[1],
-                embed_dim=cfg["embed_dim"],
-                depth=cfg["depth"],
-                num_heads=cfg["num_heads"],
-                window=cfg["window"],
-                patch_size=cfg["patch_size"],
-            )
-        model.load_state_dict(ck["state_dict"])
-        model.eval()
-        maps = np.empty_like(test_set.t1)
-        with torch.no_grad():
-            for i in range(len(test_set)):
-                batch = torch.as_tensor(image_x[i : i + 1], dtype=torch.float32)
-                maps[i] = model.predict_ms(batch).numpy()[0]
-        methods[label] = maps
-
-    return methods
 
 
 def figure_inputs(test_set) -> None:
@@ -353,7 +286,7 @@ def main() -> int:
         return 1
 
     test_set = Dataset.load(test_path)
-    methods = load_methods(test_set)
+    methods = load_methods(test_set, DATA, OUTPUTS)
     if not methods:
         print("no methods available; run fit_baseline.py and a training script")
         return 1

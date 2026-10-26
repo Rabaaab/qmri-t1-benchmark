@@ -187,6 +187,62 @@ with a training-prior sink but that mechanism has not been tested. And
 "bias within the lesion mask" is not yet a retention metric — it is
 contaminated by partial volume at the lesion edge. See `docs/literature.md`.
 
+## The results database
+
+```
+python scripts/record_results.py
+```
+
+Scores every available method and writes `data/results.sqlite`. SQLite is
+part of Python, so there is no server and no dependency: the database is one
+file.
+
+Three tables, in the shape the questions come in:
+
+| table | one row per | holds |
+|---|---|---|
+| `runs` | method + dataset | settings, git commit, headline scores |
+| `tissue_stats` | run + tissue | bias and scatter, in ms |
+| `lesion_scores` | run + **individual lesion** | size, contrast, retention |
+
+Two design points worth defending:
+
+**Lesions are stored one by one, never pre-averaged.** The whole question is
+how retention varies with lesion *size*; a mean over all sizes is exactly
+the number that hides the effect. A test fails if anyone changes this.
+
+**Every run records its git commit.** A number that looks wrong in six weeks
+can be traced to the exact version of the code that produced it.
+
+The headline table is then one query — no model is reloaded, no lesion is
+rescored:
+
+```sql
+SELECT r.method,
+       CASE WHEN l.diameter_px < 4 THEN '2 to 4'
+            WHEN l.diameter_px < 6 THEN '4 to 6'
+            WHEN l.diameter_px < 8 THEN '6 to 8'
+            ELSE '8 to 12' END       AS size_bin,
+       COUNT(*)                      AS n,
+       ROUND(AVG(l.retention), 3)    AS mean_retention
+FROM lesion_scores l JOIN runs r ON r.id = l.run_id
+WHERE r.dataset = 'test'
+GROUP BY r.method, size_bin;
+```
+
+```
+method                          2 to 4      4 to 6      6 to 8     8 to 12
+Classical fit (+B1)              0.990       1.002       1.002       0.998
+Classical fit (no B1)            1.072       1.093       1.087       1.090
+MLP (no context)                 1.064       1.075       1.073       1.071
+U-Net (local context)            0.871       1.006       1.053       1.078
+lesions per bin                     21          34          42          63
+```
+
+The file lives under `data/` and is gitignored, because it is regenerated
+from the cached results by the command above. Inspect it with any SQLite
+viewer, or `sqlite3 data/results.sqlite 'SELECT * FROM runs'`.
+
 ## Build the dataset
 
 ```
