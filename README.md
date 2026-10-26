@@ -16,6 +16,33 @@ still report a lower overall error when it does.
 This repository measures that trade-off on simulated data, where the true T1
 is known exactly.
 
+## What the data looks like
+
+![Five measured images and the T1 map computed from them](figures/inputs_and_output.png)
+
+The five grey pictures are the measurement — ordinary MR images, each taken
+with a different flip angle. The colour map is not measured at all. It is
+solved for, pixel by pixel, from the way brightness changes across those
+five. That map is the thing this project is about, and the thing a method
+can get quietly wrong.
+
+These particular images are simulated, which is the point: on a real scanner
+nobody knows the true T1, so there is nothing to score an estimate against.
+
+Anatomy can still be real. The same pipeline runs on the
+[BrainWeb](https://brainweb.bic.mni.mcgill.ca/) MS phantom from the Montreal
+Neurological Institute, which supplies real brain structure and real multiple
+sclerosis lesion shapes:
+
+![BrainWeb MS phantom slice](figures/brainweb_slice.png)
+
+BrainWeb gives tissue *fractions* rather than labels, so a voxel on a
+boundary is genuinely part white matter and part CSF. Signals from each
+tissue are mixed by volume fraction — T1 values cannot simply be averaged,
+because signal is not linear in T1. A mixed voxel has no single true T1, so
+only the 66% of voxels that are at least 95% one tissue are scored, and the
+rest are excluded and reported as excluded.
+
 ## The answer, in two figures
 
 ![Lesion contrast recovered, against lesion size](figures/retention_vs_size.png)

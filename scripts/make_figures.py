@@ -10,10 +10,11 @@ having to download data or run a model.
 
 Figures are built from the cached test split, the cached classical fits and
 the saved model checkpoints, so this is quick and does not retrain anything.
-Any model that has not been trained yet is simply skipped.
+Any model that has not been trained yet is simply skipped, and the BrainWeb
+figure is skipped if that data has not been downloaded.
 
-The first figure is the project's headline and the one to show anybody who
-asks what this is about.
+``retention_vs_size.png`` is the project's headline and the one to show
+anybody who asks what this is about.
 """
 
 from __future__ import annotations
@@ -81,15 +82,15 @@ def load_methods(test_set: Dataset) -> dict[str, np.ndarray]:
         methods["MLP (no context)"] = scatter_to_maps(flat, table_mask)
 
     image_x, _, _ = to_image_tensors(test_set)
-    for path, label, builder in [
-        (OUTPUTS / "unet_d3.pt", "U-Net (local context)", UNet),
-        (OUTPUTS / "swin_d2.pt", "Swin (global context)", SwinUNet),
+    for path, label, kind in [
+        (OUTPUTS / "unet_d3.pt", "U-Net (local context)", "unet"),
+        (OUTPUTS / "swin_d2.pt", "Swin (global context)", "swin"),
     ]:
         if not path.exists():
             continue
         ck = torch.load(path, weights_only=False)
         cfg = ck["config"]
-        if builder is UNet:
+        if kind == "unet":
             model = UNet(
                 in_channels=image_x.shape[1],
                 base_channels=cfg["base_channels"],
@@ -116,17 +117,55 @@ def load_methods(test_set: Dataset) -> dict[str, np.ndarray]:
     return methods
 
 
+def figure_inputs(test_set) -> None:
+    """What the scanner hands you, and what is computed from it.
+
+    Worth showing first to anyone unfamiliar with the project: the five grey
+    pictures are the actual measurement, and the colour map is not measured
+    at all. It is solved for, pixel by pixel, from how brightness changes
+    across those five.
+    """
+    index = max(range(len(test_set)), key=lambda i: len(test_set.lesions_for(i)))
+    mask = test_set.mask[index]
+    angles = test_set.angles
+
+    n = len(angles) + 1
+    fig, axes = plt.subplots(1, n, figsize=(2.9 * n, 3.6))
+    for ax, angle, image in zip(axes, angles, test_set.images[index]):
+        ax.imshow(image, cmap="gray")
+        ax.set_title(f"measured\n{angle:.0f}° flip angle", fontsize=9)
+
+    cmap = plt.get_cmap("viridis").copy()
+    cmap.set_bad("0.12")
+    im = axes[-1].imshow(
+        np.where(mask, test_set.t1[index], np.nan), cmap=cmap, vmin=0, vmax=4200
+    )
+    axes[-1].set_title("computed\nT1 map (ms)", fontsize=9)
+    fig.colorbar(im, ax=axes[-1], fraction=0.046, pad=0.03)
+
+    for ax in axes:
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    fig.suptitle(
+        "The five grey images are the measurement. The colour map is solved "
+        "for from how brightness changes across them.",
+        fontsize=10,
+    )
+    fig.tight_layout()
+    fig.savefig(FIGURES / "inputs_and_output.png", dpi=150)
+    plt.close(fig)
+
+
 def figure_retention(methods, test_set) -> None:
     """The headline: how much of a lesion survives, against its size."""
     fig, ax = plt.subplots(figsize=(8, 5))
     edges = np.array([2.0, 4.0, 6.0, 8.0, 12.1])
     centres = (edges[:-1] + edges[1:]) / 2
 
-    ax.axhline(
-        1.0, color="0.3", ls="--", lw=1, zorder=0,
-    )
+    ax.axhline(1.0, color="0.3", ls="--", lw=1, zorder=0)
     ax.text(
-        11.9, 1.005, "lesion fully preserved", ha="right", va="bottom",
+        centres[-1], 1.005, "lesion fully preserved", ha="right", va="bottom",
         fontsize=8, color="0.3",
     )
 
@@ -170,12 +209,12 @@ def figure_the_trap(methods, test_set) -> None:
     x = np.arange(len(names))
     width = 0.38
     ax.bar(
-        x - width / 2, whole, width, label="whole image (the number usually quoted)",
-        color="#4c78a8",
+        x - width / 2, whole, width,
+        label="whole image (the number usually quoted)", color="#4c78a8",
     )
     ax.bar(
-        x + width / 2, lesion, width, label="lesions only (what a doctor needs)",
-        color="#e45756",
+        x + width / 2, lesion, width,
+        label="lesions only (what a doctor needs)", color="#e45756",
     )
     for i, (a, b) in enumerate(zip(whole, lesion)):
         ax.text(i - width / 2, a + 1, f"{a:.0f}", ha="center", fontsize=8)
@@ -204,8 +243,7 @@ def figure_maps(methods, test_set) -> None:
     panels = [("Ground truth", test_set.t1[index])]
     panels += [(name, estimate[index]) for name, estimate in methods.items()]
 
-    cols = len(panels)
-    fig, axes = plt.subplots(1, cols, figsize=(3.1 * cols, 3.8))
+    fig, axes = plt.subplots(1, len(panels), figsize=(3.1 * len(panels), 3.8))
     cmap = plt.get_cmap("viridis").copy()
     cmap.set_bad("0.12")
 
@@ -226,11 +264,84 @@ def figure_maps(methods, test_set) -> None:
         fig.colorbar(im, ax=ax, fraction=0.046, pad=0.03)
 
     fig.suptitle(
-        "T1 maps from the same five images. Circles mark lesions no model saw in training.",
+        "T1 maps from the same five images. "
+        "Circles mark lesions no model saw in training.",
         fontsize=10,
     )
     fig.tight_layout()
     fig.savefig(FIGURES / "t1_maps.png", dpi=150)
+    plt.close(fig)
+
+
+def figure_brainweb() -> None:
+    """Real anatomy from BrainWeb, if it has been downloaded.
+
+    Skipped silently when the data is absent, since it is gitignored and a
+    fresh clone will not have it.
+    """
+    from qmri.brainweb import (
+        BRAINWEB_TISSUES,
+        DEFAULT_PATTERN,
+        FuzzyPhantom,
+        load_raw_volume,
+        mixed_signal,
+        purity_mask,
+        true_t1_map,
+    )
+
+    directory = DATA / "brainweb"
+    volumes, tissues = [], []
+    for key, tissue in BRAINWEB_TISSUES.items():
+        path = directory / DEFAULT_PATTERN.format(key=key)
+        if not path.exists():
+            return
+        volumes.append(load_raw_volume(path))
+        tissues.append(tissue)
+
+    stack = np.stack(volumes)
+    best = int(np.argmax((stack[3] > 0.5).sum(axis=(1, 2))))
+    phantom = FuzzyPhantom(stack[:, best], tuple(tissues))
+
+    images = mixed_signal(phantom, [2.0, 5.0, 10.0, 15.0, 20.0], 15.0)
+    brain = phantom.total > 0.5
+    pure = purity_mask(phantom, 0.95)
+    truth = np.where(brain, true_t1_map(phantom), np.nan)
+    lesion = phantom.fractions[3]
+
+    fig, axes = plt.subplots(1, 4, figsize=(14, 4))
+    cmap = plt.get_cmap("viridis").copy()
+    cmap.set_bad("0.12")
+
+    axes[0].imshow(images[2], cmap="gray")
+    axes[0].set_title("simulated scan, 10° flip angle", fontsize=9)
+
+    im = axes[1].imshow(truth, cmap=cmap, vmin=0, vmax=4200)
+    axes[1].set_title("true T1 (ms)", fontsize=9)
+    fig.colorbar(im, ax=axes[1], fraction=0.046, pad=0.03)
+
+    axes[2].imshow(lesion, cmap="magma", vmin=0, vmax=1)
+    axes[2].set_title(
+        f"MS lesions ({int((lesion > 0.5).sum())} voxels)", fontsize=9
+    )
+
+    axes[3].imshow(np.where(brain, pure, np.nan), cmap="RdYlGn", vmin=0, vmax=1)
+    axes[3].set_title(
+        f"scorable voxels: {100 * pure[brain].mean():.0f}%\n"
+        "(red = partial volume, excluded)",
+        fontsize=9,
+    )
+
+    for ax in axes:
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    fig.suptitle(
+        f"BrainWeb MS phantom, axial slice {best} — real anatomy, "
+        "real lesion shapes, simulated signal",
+        fontsize=10,
+    )
+    fig.tight_layout()
+    fig.savefig(FIGURES / "brainweb_slice.png", dpi=150)
     plt.close(fig)
 
 
@@ -251,9 +362,11 @@ def main() -> int:
     for name in methods:
         print(f"  - {name}")
 
+    figure_inputs(test_set)
     figure_retention(methods, test_set)
     figure_the_trap(methods, test_set)
     figure_maps(methods, test_set)
+    figure_brainweb()
 
     print()
     for path in sorted(FIGURES.glob("*.png")):
