@@ -119,7 +119,8 @@ def figure_retention(methods, test_set) -> None:
     ax.set_xlabel("lesion size (pixels across)")
     ax.set_ylabel("fraction of lesion contrast recovered")
     ax.set_title(
-        "Small lesions survive voxel-wise methods and fade under spatial ones",
+        "Both spatial models fade on small lesions — but the one that sees\n"
+        "further fades less, so reach is not the mechanism",
         fontsize=11,
     )
     ax.set_xticks(centres)

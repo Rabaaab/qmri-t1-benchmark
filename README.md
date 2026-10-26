@@ -49,12 +49,23 @@ rest are excluded and reported as excluded.
 
 Every method that works **one voxel at a time** returns a flat line: a tiny
 lesion survives as well as a large one, because a method with no neighbours
-has nothing to blur it with. The U-Net bends. It recovers lesions of 8–12
-pixels perfectly and loses roughly 13% of the contrast of the smallest.
+has nothing to blur it with. Both spatial models bend downward on the
+smallest lesions — the U-Net loses about 13% of their contrast, the Swin
+Transformer about 6%.
 
 The MLP is the control that makes this attributable. It learns from the same
 data, with the same loss, and is also flat — so the difference is **spatial
 context**, not learning.
+
+**And the obvious explanation for it is wrong.** The Swin sees 224 pixels
+against the U-Net's 92, so if the damage were simply a matter of how far a
+model can reach, the Swin should be worse. It is consistently better. That
+points at *how* context is used rather than how much is available:
+convolution blends a pixel with its neighbours using fixed weights
+regardless of what they contain, while attention weights each neighbour by
+how similar it is, and a lesion is precisely a region that does not resemble
+its surroundings. That is a hypothesis this design can go on to test, not a
+result — see the caveats below.
 
 ![Overall error against lesion-only error](figures/overall_vs_lesion_error.png)
 
@@ -63,6 +74,22 @@ on the proper classical baseline, 58 ms against 71. Judged on lesions alone
 it is far worse, 52 ms against 31. Lesions are about 2% of the voxels, so the
 number almost everyone reports is dominated by the tissue where the method
 does well.
+
+### Caveats, stated plainly
+
+**Neither network is confirmed converged.** The U-Net's best epoch was 189
+of 200 and the Swin's 95 of 100: both stopped because they ran out of
+epochs, not because they had plateaued. This matters more than it sounds.
+An earlier U-Net run, stopped at 40 epochs, appeared to erase 38% of small
+lesions; trained properly that fell to 13%. An undertrained network and a
+smoothing network produce the same-shaped curve, so no number here should be
+quoted until training ends by its own stopping criterion.
+
+**One seed each.** Nothing here is repeated, so the differences between
+models are not yet shown to exceed run-to-run variation.
+
+**The two spatial models are not matched on parameters** (483k against
+759k), only on how far they downsample.
 
 ![T1 maps from each method](figures/t1_maps.png)
 
