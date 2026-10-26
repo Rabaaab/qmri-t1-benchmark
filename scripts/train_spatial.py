@@ -33,20 +33,49 @@ import torch
 from qmri.dataset import Dataset, to_image_tensors
 from qmri.evaluate import summarise
 from qmri.models import UNet, receptive_field_px, to_scaled
+from qmri.swin import SwinUNet
 from qmri.tissues import LESION_3T, TISSUES_3T
 from qmri.training import TrainConfig, train
 
 TISSUE_NAMES = {t.label: t.name for t in TISSUES_3T if t.t1_ms > 0}
 TISSUE_NAMES[LESION_3T.label] = LESION_3T.name
 
-ARCHITECTURES = {"unet": UNet}
+ARCHITECTURES = ("unet", "swin")
+
+
+def build_model(args, in_channels: int):
+    """One place where each architecture's own arguments are applied.
+
+    The two take different shape parameters -- channel width for the
+    convolutional net, token width and attention heads for the transformer
+    -- but `depth` means the same thing in both: how many times the image
+    is halved, and therefore how far the model can see.
+    """
+    if args.arch == "unet":
+        return UNet(
+            in_channels=in_channels,
+            base_channels=args.base_channels,
+            depth=args.depth,
+        )
+    return SwinUNet(
+        in_channels=in_channels,
+        embed_dim=args.embed_dim,
+        depth=args.depth,
+        num_heads=args.num_heads,
+        window=args.window,
+        patch_size=args.patch_size,
+    )
 
 
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--arch", default="unet", choices=sorted(ARCHITECTURES))
+    p.add_argument("--arch", default="unet", choices=ARCHITECTURES)
     p.add_argument("--depth", type=int, default=3)
-    p.add_argument("--base-channels", type=int, default=32)
+    p.add_argument("--base-channels", type=int, default=32, help="unet only")
+    p.add_argument("--embed-dim", type=int, default=32, help="swin only")
+    p.add_argument("--num-heads", type=int, default=4, help="swin only")
+    p.add_argument("--window", type=int, default=8, help="swin only")
+    p.add_argument("--patch-size", type=int, default=2, help="swin only")
     p.add_argument("--epochs", type=int, default=40)
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--learning-rate", type=float, default=1e-3)
@@ -74,11 +103,9 @@ def main(argv=None) -> int:
     val_x, val_y, val_mask = to_image_tensors(val_set)
     test_x, _, _ = to_image_tensors(test_set)
 
-    factory = lambda: ARCHITECTURES[args.arch](  # noqa: E731
-        in_channels=train_x.shape[1],
-        base_channels=args.base_channels,
-        depth=args.depth,
-    )
+    def factory():
+        return build_model(args, in_channels=train_x.shape[1])
+
     probe = factory()
     field = receptive_field_px(probe, size=256)
     n_params = sum(p.numel() for p in probe.parameters())

@@ -14,6 +14,7 @@ from qmri.dataset import (
 )
 from qmri.fit import FitResult, despot1_linear, fit_image, fit_voxel
 from qmri.phantom import Lesion, Phantom, insert_lesions, procedural_brain
+from qmri.swin import SwinUNet
 
 __all__ = [
     "spgr_signal",
@@ -32,4 +33,5 @@ __all__ = [
     "generate_split",
     "build_splits",
     "normalise_per_voxel",
+    "SwinUNet",
 ]
