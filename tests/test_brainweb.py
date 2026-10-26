@@ -41,8 +41,8 @@ def brainweb_dir(tmp_path):
     grey = np.zeros(SHAPE, dtype=np.float32)
     white[:, :, :5] = 1.0
     grey[:, :, 5:] = 1.0
-    write_volume(tmp_path / "phantom_1.0mm_wht.rawb", white)
-    write_volume(tmp_path / "phantom_1.0mm_gry.rawb", grey)
+    write_volume(tmp_path / "phantom_1.0mm_msles2_wht.rawb", white)
+    write_volume(tmp_path / "phantom_1.0mm_msles2_gry.rawb", grey)
     return tmp_path
 
 
@@ -92,7 +92,7 @@ def test_loads_the_tissues_that_are_present(brainweb_dir):
 def test_missing_tissue_files_are_skipped_not_fatal(brainweb_dir):
     # The healthy phantom has no lesion file; the MS phantoms do. One code
     # path has to serve both.
-    assert "les" in BRAINWEB_TISSUES
+    assert "wml" in BRAINWEB_TISSUES
     phantom = load_fuzzy_phantom(brainweb_dir, shape=SHAPE)
     assert all(t.label != 4 for t in phantom.tissues)
 

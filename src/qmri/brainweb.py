@@ -51,6 +51,7 @@ from qmri.tissues import LESION_3T, TISSUES_3T, Tissue
 __all__ = [
     "BRAINWEB_SHAPE",
     "BRAINWEB_TISSUES",
+    "DEFAULT_PATTERN",
     "load_raw_volume",
     "FuzzyPhantom",
     "load_fuzzy_phantom",
@@ -62,15 +63,28 @@ __all__ = [
 # fastest and Z slowest, so the natural numpy shape is (z, y, x).
 BRAINWEB_SHAPE = (181, 217, 181)
 
-# BrainWeb's tissue file names mapped onto the tissues this project models.
-# Anything not listed (fat, muscle, skull, skin, vessels) is outside the
-# brain and is treated as background.
+# BrainWeb's tissue keys mapped onto the tissues this project models.
+#
+# The MS phantom ships eleven volumes. The four below are the ones with a
+# T1 this study models; the rest -- bck (background), fat, gli (glial),
+# mit, m-s (muscle/skin), skl (skull), skn (skin) -- are outside the brain
+# or not separately modelled here, and are left out, which means they
+# contribute no signal and fall into the background.
+#
+# There is also a "crisp" volume holding one discrete label per voxel. It
+# is deliberately unused: taking the dominant label would throw away the
+# partial-volume information that is the main reason to prefer BrainWeb
+# over the procedural phantom in the first place.
 BRAINWEB_TISSUES: dict[str, Tissue] = {
     "wht": next(t for t in TISSUES_3T if t.label == 1),  # white matter
     "gry": next(t for t in TISSUES_3T if t.label == 2),  # grey matter
     "csf": next(t for t in TISSUES_3T if t.label == 3),  # CSF
-    "les": LESION_3T,  # MS lesions, present only in the MS phantoms
+    "wml": LESION_3T,  # white matter lesions, MS phantoms only
 }
+
+# Filename stem of the downloaded volumes. "msles2" is the moderate MS
+# phantom; "normal" is the healthy one, which has no wml volume.
+DEFAULT_PATTERN = "phantom_1.0mm_msles2_{key}.rawb"
 
 
 def load_raw_volume(
@@ -153,7 +167,7 @@ def load_fuzzy_phantom(
     directory: str | Path,
     slice_index: int | None = None,
     axis: int = 0,
-    pattern: str = "phantom_1.0mm_{key}.rawb",
+    pattern: str = DEFAULT_PATTERN,
     shape: tuple[int, int, int] = BRAINWEB_SHAPE,
 ) -> FuzzyPhantom:
     """Load the tissue volumes in ``directory`` and take one slice.
@@ -172,6 +186,8 @@ def load_fuzzy_phantom(
         Axis to slice along; 0 is axial on BrainWeb's ``(z, y, x)`` grid.
     pattern : str
         Filename template; ``{key}`` is replaced by the BrainWeb tissue key.
+        Swap ``msles2`` for ``normal`` to load the healthy phantom, which
+        simply has no lesion volume to find.
     shape : (int, int, int)
         Volume shape, as for :func:`load_raw_volume`.
     """
