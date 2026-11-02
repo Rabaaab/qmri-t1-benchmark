@@ -51,6 +51,11 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--learning-rate", type=float, default=1e-3)
     p.add_argument("--patience", type=int, default=10)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument(
+        "--device",
+        default="cpu",
+        help='"cuda" on a GPU machine such as Colab; "cpu" otherwise',
+    )
     p.add_argument("--data", type=Path, default=ROOT / "data")
     p.add_argument("--out", type=Path, default=ROOT / "outputs")
     return p.parse_args(argv)
@@ -92,6 +97,7 @@ def main(argv=None) -> int:
         learning_rate=args.learning_rate,
         patience=args.patience,
         seed=args.seed,
+        device=args.device,
     )
     model, history = train(
         lambda: VoxelMLP(
@@ -115,7 +121,15 @@ def main(argv=None) -> int:
 
     # --- predict the test split ------------------------------------------
     with torch.no_grad():
-        predicted = model.predict_ms(torch.as_tensor(test_x)).numpy()
+        # The batch has to sit on the same device as the model, and the
+        # result has to come back to the CPU before numpy will touch it.
+        predicted = (
+            model.predict_ms(
+                torch.as_tensor(test_x, dtype=torch.float32, device=args.device)
+            )
+            .cpu()
+            .numpy()
+        )
     mlp_maps = scatter_to_maps(predicted, test_mask)
 
     # --- compare against the cached classical fits ------------------------

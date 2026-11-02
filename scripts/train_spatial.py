@@ -81,6 +81,11 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--learning-rate", type=float, default=1e-3)
     p.add_argument("--patience", type=int, default=8)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument(
+        "--device",
+        default="cpu",
+        help='"cuda" on a GPU machine such as Colab; "cpu" otherwise',
+    )
     p.add_argument("--data", type=Path, default=ROOT / "data")
     p.add_argument("--out", type=Path, default=ROOT / "outputs")
     return p.parse_args(argv)
@@ -127,6 +132,7 @@ def main(argv=None) -> int:
             learning_rate=args.learning_rate,
             patience=args.patience,
             seed=args.seed,
+            device=args.device,
         ),
         train_mask=train_mask,
         val_mask=val_mask,
@@ -155,8 +161,12 @@ def main(argv=None) -> int:
     predicted = np.empty_like(test_set.t1)
     with torch.no_grad():
         for i in range(len(test_set)):
-            batch = torch.as_tensor(test_x[i : i + 1], dtype=torch.float32)
-            predicted[i] = model.predict_ms(batch).numpy()[0]
+            # The model may be on a GPU, so the batch has to follow it there
+            # and the result has to come back before numpy will touch it.
+            batch = torch.as_tensor(
+                test_x[i : i + 1], dtype=torch.float32, device=args.device
+            )
+            predicted[i] = model.predict_ms(batch).cpu().numpy()[0]
 
     # --- gather every method we have ------------------------------------
     methods: list[tuple[str, np.ndarray]] = []
