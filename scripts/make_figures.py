@@ -207,6 +207,63 @@ def figure_maps(methods, test_set) -> None:
     plt.close(fig)
 
 
+def figure_what_negative_r2_means(methods, test_set) -> None:
+    """Explain a negative R-squared without using the words R-squared.
+
+    R2 scores a model against a baseline that never looks at the image and
+    simply reports the mean. On lesions that baseline is strong, because
+    every lesion sits near the same T1 -- so a model has to beat a pretty
+    good guess just to score zero. A model that misses by more than the
+    data varies lands below zero, which is what "worse than useless" means
+    and what this figure shows.
+    """
+    label = "U-Net (local context)"
+    if label not in methods:
+        return
+    lesion = test_set.labels == 4
+    truth = test_set.t1[lesion].astype(float)
+    predicted = methods[label][lesion].astype(float)
+    finite = np.isfinite(predicted)
+    truth, predicted = truth[finite], predicted[finite]
+
+    lazy_error = truth - truth.mean()      # never opens the scan
+    model_error = predicted - truth        # opens the scan
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    bins = np.linspace(-200, 200, 90)
+    ax.hist(
+        lazy_error, bins=bins, color="#7f7f7f", alpha=0.75,
+        label=(
+            "NEVER looks at the scan\n(always says the average)\n"
+            f"typical miss: {lazy_error.std():.0f}"
+        ),
+    )
+    ax.hist(
+        model_error, bins=bins, color="#d62728", alpha=0.65,
+        label=(
+            "The U-Net\n(looks at the scan)\n"
+            f"typical miss: {np.sqrt((model_error ** 2).mean()):.0f}"
+        ),
+    )
+    ax.axvline(0, color="black", lw=1.5)
+    ax.text(0, ax.get_ylim()[1] * 0.97, " perfect", fontsize=10, va="top")
+    ax.set_xlabel(
+        "how far the answer was from the truth  (milliseconds)", fontsize=11
+    )
+    ax.set_ylabel("number of lesion pixels", fontsize=11)
+    ax.set_title(
+        "On lesions, the U-Net misses by MORE than never looking at all",
+        fontsize=13, fontweight="bold",
+    )
+    ax.legend(fontsize=9.5, loc="upper right")
+    ax.set_yticks([])
+    for side in ("top", "right", "left"):
+        ax.spines[side].set_visible(False)
+    fig.tight_layout()
+    fig.savefig(FIGURES / "what_negative_r2_means.png", dpi=150)
+    plt.close(fig)
+
+
 def figure_brainweb() -> None:
     """Real anatomy from BrainWeb, if it has been downloaded.
 
@@ -300,6 +357,7 @@ def main() -> int:
     figure_retention(methods, test_set)
     figure_the_trap(methods, test_set)
     figure_maps(methods, test_set)
+    figure_what_negative_r2_means(methods, test_set)
     figure_brainweb()
 
     print()
