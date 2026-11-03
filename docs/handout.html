@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Handout — IRM quantitative</title>
+<style>
+  @page { size: A4; margin: 12mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", Calibri, Arial, sans-serif;
+    font-size: 9.6pt; line-height: 1.38; color: #16181d;
+    margin: 0; padding: 0;
+  }
+  header { border-bottom: 2.5px solid #16181d; padding-bottom: 5px; margin-bottom: 9px; }
+  h1 { font-size: 14.5pt; margin: 0 0 2px; letter-spacing: -0.2px; }
+  .sub { font-size: 9pt; color: #555; }
+  .meta { font-size: 8.3pt; color: #555; margin-top: 3px; }
+  h2 {
+    font-size: 9.6pt; text-transform: uppercase; letter-spacing: 0.7px;
+    margin: 10px 0 4px; color: #0b4f8a; border-bottom: 1px solid #ccd3da;
+    padding-bottom: 2px;
+  }
+  p { margin: 0 0 5px; }
+  .row { display: flex; gap: 11px; align-items: flex-start; }
+  .col { flex: 1; min-width: 0; }
+  figure { margin: 0; }
+  figure img { width: 100%; border: 1px solid #ccd3da; }
+  figcaption { font-size: 7.8pt; color: #555; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 8.6pt; }
+  th, td { text-align: left; padding: 2.5px 5px; border-bottom: 1px solid #dde2e7; }
+  th { background: #eef2f6; font-weight: 600; }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .headline {
+    background: #fdecec; border-left: 4px solid #c0392b;
+    padding: 7px 9px; margin: 6px 0;
+  }
+  .headline .big { font-size: 15pt; font-weight: 700; color: #a5281b; }
+  .hook {
+    background: #eaf4ec; border-left: 4px solid #1e7a3c;
+    padding: 7px 9px; margin: 7px 0;
+  }
+  .hook h3 { margin: 0 0 3px; font-size: 9.6pt; color: #14612e; }
+  ul { margin: 2px 0 5px; padding-left: 15px; }
+  li { margin-bottom: 1.5px; }
+  footer {
+    margin-top: 9px; padding-top: 5px; border-top: 1px solid #ccd3da;
+    font-size: 8pt; color: #555; display: flex; justify-content: space-between;
+  }
+  strong { color: #000; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Les réseaux de neurones effacent-ils les petites lésions en IRM quantitative&nbsp;?</h1>
+  <div class="sub">Banc d'essai comparatif pour l'estimation de T1 — ajustement classique, MLP, U-Net, Swin Transformer</div>
+  <div class="meta">
+    Rabab Agoujim · rababagoujim19@gmail.com ·
+    Code et résultats : github.com/Rabaaab/qmri-t1-benchmark · 192 tests automatisés
+  </div>
+</header>
+
+<h2>Le problème</h2>
+<p>
+  L'IRM quantitative mesure une grandeur physique réelle par voxel (ici <strong>T1</strong>)
+  au lieu d'une image dont la luminosité dépend de la machine. Le calcul classique
+  se fait <strong>voxel par voxel</strong> ; les réseaux de neurones exploitent le
+  <strong>contexte spatial</strong> et améliorent l'erreur globale. Mais une lésion de
+  SEP peut faire 3&nbsp;pixels, et elle représente <strong>2&nbsp;% des voxels</strong> :
+  l'erreur globale est dominée par les 98&nbsp;% restants.
+</p>
+
+<div class="row">
+  <div class="col" style="flex: 1.12">
+    <h2>Résultat</h2>
+    <figure>
+      <img src="../figures/retention_vs_size.png" alt="Rétention du contraste lésionnel">
+      <figcaption>
+        Fraction du contraste lésionnel restituée, selon la taille. Les méthodes
+        voxel-par-voxel sont plates ; les deux modèles spatiaux chutent sur les
+        petites lésions.
+      </figcaption>
+    </figure>
+  </div>
+  <div class="col">
+    <h2>Le chiffre</h2>
+    <div class="headline">
+      <div>U-Net, R² sur l'ensemble du cerveau</div>
+      <div class="big">99,8&nbsp;%</div>
+      <div style="margin-top:4px">R² sur les lésions seules</div>
+      <div class="big">−58&nbsp;%</div>
+      <div style="font-size:8.3pt;margin-top:3px">
+        Un R² négatif = <strong>pire qu'une prédiction constante</strong>. Le modèle
+        regarde l'image et s'éloigne de la vérité.
+      </div>
+    </div>
+    <table>
+      <tr><th>Méthode</th><th class="n">global</th><th class="n">lésions</th></tr>
+      <tr><td>Ajustement +B1</td><td class="n">70,7</td><td class="n"><strong>30,8</strong></td></tr>
+      <tr><td>MLP</td><td class="n">53,0</td><td class="n">38,1</td></tr>
+      <tr><td>Swin</td><td class="n">56,7</td><td class="n">39,3</td></tr>
+      <tr><td><strong>U-Net</strong></td><td class="n"><strong>56,4</strong></td><td class="n">50,2</td></tr>
+    </table>
+    <div style="font-size:7.8pt;color:#555;margin-top:2px">RMSE en ms. Le U-Net gagne 20&nbsp;% globalement et perd 63&nbsp;% sur les lésions.</div>
+  </div>
+</div>
+
+<div class="hook">
+  <h3>Pourquoi cela rejoint vos travaux — un problème de données déséquilibrées</h3>
+  <p style="margin:0">
+    Le déséquilibre des classes est bien étudié en <em>classification</em>. Ici le même
+    phénomène apparaît en <strong>régression</strong> : la région cliniquement décisive
+    est minoritaire (2&nbsp;%), la métrique standard est dominée par la majorité, et une
+    défaillance complète sur la minorité reste invisible. <strong>Une approche de
+    rééchantillonnage ou de pondération ciblée s'appliquerait-elle à ce cas&nbsp;?</strong>
+    C'est la question que j'aimerais explorer avec vous.
+  </p>
+</div>
+
+<div class="row">
+  <div class="col">
+    <h2>Dispositif expérimental</h2>
+    <table>
+      <tr><th>Méthode</th><th>Voit</th><th>Isole</th></tr>
+      <tr><td>Ajustement, sans B1</td><td>1 px</td><td>référence naïve</td></tr>
+      <tr><td>Ajustement, avec B1</td><td>1 px</td><td>référence à battre</td></tr>
+      <tr><td><strong>MLP</strong></td><td>1 px</td><td><strong>apprentissage sans contexte</strong></td></tr>
+      <tr><td>U-Net</td><td>92 px</td><td>contexte local, poids fixes</td></tr>
+      <tr><td>Swin Transformer</td><td>224 px</td><td>contexte large, attention</td></tr>
+    </table>
+    <p style="margin-top:4px;font-size:8.6pt">
+      <strong>Le MLP est le témoin.</strong> Il apprend mais ne peut rien lisser : il ne
+      voit qu'un voxel. Sans lui, un échec du U-Net serait inexploitable — impossible de
+      distinguer l'apprentissage du lissage. Données simulées : la vérité terrain est
+      connue voxel par voxel, ce qu'aucune acquisition réelle ne permet. Anatomie réelle
+      (phantom BrainWeb, MNI Montréal), lésions uniquement dans le jeu de test.
+    </p>
+  </div>
+  <div class="col">
+    <h2>Ce qui reste à faire</h2>
+    <ul>
+      <li><strong>Trois graines aléatoires</strong> — une seule exécution par modèle pour l'instant</li>
+      <li><strong>Rétention vs contraste lésionnel</strong> — teste directement le mécanisme, sans réentraînement</li>
+      <li><strong>Ablation de profondeur</strong> — la rétention suit-elle le champ réceptif&nbsp;?</li>
+      <li><strong>Pondération / rééchantillonnage</strong> de la région minoritaire</li>
+      <li><strong>Revue de littérature</strong> complète (PubMed, Scholar)</li>
+    </ul>
+    <h2 style="margin-top:7px">Honnêteté sur l'apport</h2>
+    <p style="font-size:8.6pt;margin:0">
+      Le phénomène n'est pas nouveau : <strong>Gyori et al., MRM 2022</strong> montrent que
+      les estimateurs appris sont biaisés vers leur distribution d'entraînement, et la
+      littérature sur la reconstruction montre depuis 2020 que les réseaux effacent de
+      petites pathologies. Ce que je n'ai pas trouvé : un <strong>témoin voxel-par-voxel
+      appris</strong> séparant contexte et apprentissage, et la rétention <strong>résolue
+      par taille de lésion</strong> en cartographie paramétrique plutôt qu'en reconstruction.
+    </p>
+  </div>
+</div>
+
+<footer>
+  <span>Rabab Agoujim — IRM quantitative, novembre 2026</span>
+  <span>github.com/Rabaaab/qmri-t1-benchmark</span>
+</footer>
+
+</body>
+</html>
