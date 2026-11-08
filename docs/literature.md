@@ -1,19 +1,19 @@
 # Literature search
 
-Record what you searched, where, and what you found. An examiner will ask
-"how do you know nobody has done this?" and the only acceptable answer is a
-record like this one, not a memory.
+A record of what was searched, where, and what was found. The question
+"how do you know this has not already been done?" needs a record, not a
+recollection.
 
-Fill in the **Found** column as you go. "Nothing relevant" is a real result
-and worth writing down — it is evidence you looked.
+The **Found** column is filled in as the search proceeds. "Nothing relevant"
+is a real result and is written down: it is evidence the search happened.
 
 ---
 
 ## A. The direct hit
 
 If someone has already compared a CNN against voxel-wise fitting for VFA T1
-mapping, you want to know **now**. This is good news if you find it: you
-replicate, extend, and cite. It is only bad news if you find it in November.
+mapping, that is worth knowing early. It is good news if found: the work
+becomes a replication and an extension, and the paper gets cited.
 
 **PubMed**
 
