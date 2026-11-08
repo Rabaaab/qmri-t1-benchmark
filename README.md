@@ -50,40 +50,47 @@ rest are excluded and reported as excluded.
 Every method that works **one voxel at a time** returns a flat line: a tiny
 lesion survives as well as a large one, because a method with no neighbours
 has nothing to blur it with. Both spatial models bend downward on the
-smallest lesions — the U-Net loses about 13% of their contrast, the Swin
-Transformer about 6%.
+smallest lesions — the U-Net loses about 7% of their contrast, the Swin
+Transformer about 10%.
 
 The MLP is the control that makes this attributable. It learns from the same
 data, with the same loss, and is also flat — so the difference is **spatial
 context**, not learning.
 
-**And the obvious explanation for it is wrong.** The Swin sees 224 pixels
-against the U-Net's 92, so if the damage were simply a matter of how far a
-model can reach, the Swin should be worse. It is consistently better. That
-points at *how* context is used rather than how much is available:
-convolution blends a pixel with its neighbours using fixed weights
-regardless of what they contain, while attention weights each neighbour by
-how similar it is, and a lesion is precisely a region that does not resemble
-its surroundings. That is a hypothesis this design can go on to test, not a
-result — see the caveats below.
+**The two networks fail in opposite directions.** The U-Net reads lesions
+**+27 ms too high**; the Swin reads them **−21 ms too low**. Opposite signs,
+so these are not the same failure. The Swin pulls lesion values *down toward
+the surrounding white matter*, which is what blending with neighbours looks
+like. The U-Net pushes them *up* by the same +27 the MLP shows — and the MLP
+sees one pixel and cannot blend at all, so that part is inherited training
+prior, not smoothing.
+
+An earlier version of this file claimed the Swin, with 2.4× the receptive
+field, erased *less* than the U-Net. That was an artefact of the U-Net not
+having finished training. Converged, the Swin's retention is lower at every
+size, while its lesion error is better. The two metrics disagree, and both
+are reported.
 
 ![Overall error against lesion-only error](figures/overall_vs_lesion_error.png)
 
 And this is why it matters. Judged on the whole image, the U-Net *improves*
-on the proper classical baseline, 58 ms against 71. Judged on lesions alone
-it is far worse, 52 ms against 31. Lesions are about 2% of the voxels, so the
+on the proper classical baseline, 56 ms against 71. Judged on lesions alone
+it is far worse, 50 ms against 31. Lesions are about 2% of the voxels, so the
 number almost everyone reports is dominated by the tissue where the method
 does well.
 
 ### Caveats, stated plainly
 
-**Neither network is confirmed converged.** The U-Net's best epoch was 189
-of 200 and the Swin's 95 of 100: both stopped because they ran out of
-epochs, not because they had plateaued. This matters more than it sounds.
-An earlier U-Net run, stopped at 40 epochs, appeared to erase 38% of small
-lesions; trained properly that fell to 13%. An undertrained network and a
-smoothing network produce the same-shaped curve, so no number here should be
-quoted until training ends by its own stopping criterion.
+**Convergence: resolved.** Every model here stopped by early stopping, not
+at its epoch cap — MLP best epoch 63 of 400, U-Net 326 of 800, Swin 211 of
+600. This mattered: three successive U-Net runs gave small-lesion retention
+of 0.62 → 0.87 → **0.93** as training went from 40 epochs to converged. An
+undertrained network and a smoothing network produce the same-shaped curve,
+so most of the apparent effect was undertraining.
+
+**The two networks disagree depending on the metric.** The Swin has *worse*
+retention (0.904 vs 0.928) but *better* lesion error (39.3 vs 50.2 ms).
+Both are reported; neither is picked for being flattering.
 
 **One seed each.** Nothing here is repeated, so the differences between
 models are not yet shown to exceed run-to-run variation.
@@ -121,9 +128,20 @@ than those seen in training.
 - [x] 2D digital phantom, and the first end-to-end result (below)
 - [x] Dataset generator with leak-proof splits
 - [x] MLP (per-voxel control) — see the result below
-- [ ] U-Net
-- [ ] Lesion retention experiment
-- [ ] Out-of-distribution B1 test
+- [x] U-Net (trained, `outputs/unet_d3.pt`; results below)
+- [x] Swin Transformer (trained, `outputs/swin_d2.pt`; results below)
+- [x] Lesion retention experiment (`src/qmri/retention.py`; figure and table below)
+- [ ] Out-of-distribution B1 test (not started — `b1_amplitude` is a dataset
+      parameter, but no script trains on mild fields and tests on severe ones)
+
+### Next steps
+
+1. **Repeat with several seeds.** One run per model; the differences between
+   them are not yet shown to exceed run-to-run variation.
+2. **Match the two spatial models on parameter count** (483k against 759k) —
+   they are currently matched only on how far they downsample.
+3. **Run the out-of-distribution B1 test**: train on mild transmit-field
+   errors, test on severe ones.
 
 ## What ignoring B1 costs
 
@@ -193,8 +211,8 @@ Collapsing bias and scatter into one number makes the point sharp:
 
 | region | fit, with B1 | MLP |
 |---|---|---|
-| whole image RMSE | 70.7 | **53.1** |
-| lesions only RMSE | **30.8** | 37.3 |
+| whole image RMSE | 70.7 | **53.0** |
+| lesions only RMSE | **30.8** | 38.1 |
 
 The MLP is 25% better overall and 21% worse on the thing a radiologist
 needed to see. Lesions are 2.15% of tissue voxels, so the whole-image
@@ -210,9 +228,11 @@ design can tell them apart.
 
 Second, caveats: one seed, one training run, no repetitions. The direction
 of the bias (upward, toward the grey-matter mode at 1331 ms) is *consistent*
-with a training-prior sink but that mechanism has not been tested. And
-"bias within the lesion mask" is not yet a retention metric — it is
-contaminated by partial volume at the lesion edge. See `docs/literature.md`.
+with a training-prior sink but that mechanism has not been tested. Lesion
+retention is now measured properly by `src/qmri/retention.py`, which scores
+contrast across the lesion edge against a gapped reference ring rather than
+error inside the lesion mask — so a uniform global bias no longer counts as
+erasure. See `docs/literature.md`.
 
 ## The results database
 
@@ -261,8 +281,9 @@ GROUP BY r.method, size_bin;
 method                          2 to 4      4 to 6      6 to 8     8 to 12
 Classical fit (+B1)              0.990       1.002       1.002       0.998
 Classical fit (no B1)            1.072       1.093       1.087       1.090
-MLP (no context)                 1.064       1.075       1.073       1.071
-U-Net (local context)            0.871       1.006       1.053       1.078
+MLP (no context)                 1.066       1.076       1.074       1.072
+Swin (global context)            0.904       0.939       0.956       0.961
+U-Net (local context)            0.928       1.017       1.060       1.084
 lesions per bin                     21          34          42          63
 ```
 

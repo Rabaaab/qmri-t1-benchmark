@@ -67,6 +67,17 @@ def build_model(args, in_channels: int):
     )
 
 
+def _portable(settings: dict) -> dict:
+    """Config with paths as strings.
+
+    Pickling Path objects into a checkpoint ties it to the Python version
+    that wrote it: 3.13 stores them as pathlib._local.PosixPath, which 3.11
+    cannot import at all. A checkpoint trained on Colab then refuses to load
+    on a laptop. Strings travel.
+    """
+    return {k: (str(v) if isinstance(v, Path) else v) for k, v in settings.items()}
+
+
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--arch", default="unet", choices=ARCHITECTURES)
@@ -148,7 +159,7 @@ def main(argv=None) -> int:
     torch.save(
         {
             "state_dict": model.state_dict(),
-            "config": vars(args),
+            "config": _portable(vars(args)),
             "receptive_field_px": field,
             "n_params": n_params,
             "best_val_loss": history.best_val_loss,
@@ -182,7 +193,7 @@ def main(argv=None) -> int:
         from qmri.models import VoxelMLP
 
         table_x, _, table_mask = to_voxel_table(test_set)
-        checkpoint = torch.load(mlp_path, weights_only=False)
+        checkpoint = torch.load(mlp_path, weights_only=False, map_location="cpu")
         mlp = VoxelMLP(
             n_features=table_x.shape[1],
             hidden=checkpoint["config"].get("hidden", 256),

@@ -42,6 +42,17 @@ TISSUE_NAMES = {t.label: t.name for t in TISSUES_3T if t.t1_ms > 0}
 TISSUE_NAMES[LESION_3T.label] = LESION_3T.name
 
 
+def _portable(settings: dict) -> dict:
+    """Config with paths as strings.
+
+    Pickling Path objects into a checkpoint ties it to the Python version
+    that wrote it: 3.13 stores them as pathlib._local.PosixPath, which 3.11
+    cannot import at all. A checkpoint trained on Colab then refuses to load
+    on a laptop. Strings travel.
+    """
+    return {k: (str(v) if isinstance(v, Path) else v) for k, v in settings.items()}
+
+
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--epochs", type=int, default=60)
@@ -115,7 +126,7 @@ def main(argv=None) -> int:
     )
 
     torch.save(
-        {"state_dict": model.state_dict(), "config": vars(args)},
+        {"state_dict": model.state_dict(), "config": _portable(vars(args))},
         args.out / "mlp.pt",
     )
 

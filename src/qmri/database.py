@@ -239,9 +239,21 @@ def retention_pivot(conn: sqlite3.Connection, dataset: str = "test"):
     Written as one query to show what the database buys. Producing this from
     loose .npz files would mean reloading every model and rescoring every
     lesion.
+
+    Only the **most recent run of each method** is included. Re-running an
+    experiment deliberately adds rows rather than replacing them, so without
+    this restriction the averages would silently mix a converged model with
+    the undertrained version of itself, and the lesion counts would be a
+    multiple of the real ones. Use :func:`fetch_runs` to see the history.
     """
     return conn.execute(
         """
+        WITH latest AS (
+            SELECT method, MAX(id) AS id
+            FROM runs
+            WHERE dataset = ?
+            GROUP BY method
+        )
         SELECT r.method,
                CASE
                  WHEN l.diameter_px <  4 THEN '2 to 4'
@@ -252,8 +264,8 @@ def retention_pivot(conn: sqlite3.Connection, dataset: str = "test"):
                COUNT(*)               AS n,
                ROUND(AVG(l.retention), 3) AS mean_retention
         FROM lesion_scores l
-        JOIN runs r ON r.id = l.run_id
-        WHERE r.dataset = ?
+        JOIN runs   r      ON r.id = l.run_id
+        JOIN latest        ON latest.id = r.id
         GROUP BY r.method, size_bin
         ORDER BY r.method, MIN(l.diameter_px)
         """,

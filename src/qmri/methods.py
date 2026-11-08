@@ -76,7 +76,7 @@ def load_methods(
     mlp_path = outputs_dir / "mlp.pt"
     if mlp_path.exists():
         table_x, _, table_mask = to_voxel_table(test_set)
-        checkpoint = torch.load(mlp_path, weights_only=False)
+        checkpoint = torch.load(mlp_path, weights_only=False, map_location="cpu")
         model = VoxelMLP(
             n_features=table_x.shape[1],
             hidden=checkpoint["config"].get("hidden", 256),
@@ -95,7 +95,7 @@ def load_methods(
         path = outputs_dir / filename
         if not path.exists():
             continue
-        checkpoint = torch.load(path, weights_only=False)
+        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         config = checkpoint["config"]
         if config["arch"] == "unet":
             model = UNet(
@@ -148,7 +148,7 @@ def describe_methods(outputs_dir: str | Path) -> dict[str, dict]:
 
     mlp_path = outputs_dir / "mlp.pt"
     if mlp_path.exists():
-        checkpoint = torch.load(mlp_path, weights_only=False)
+        checkpoint = torch.load(mlp_path, weights_only=False, map_location="cpu")
         config = checkpoint["config"]
         out["MLP (no context)"] = {
             "depth": config.get("depth"),
@@ -164,7 +164,7 @@ def describe_methods(outputs_dir: str | Path) -> dict[str, dict]:
         path = outputs_dir / filename
         if not path.exists():
             continue
-        checkpoint = torch.load(path, weights_only=False)
+        checkpoint = torch.load(path, weights_only=False, map_location="cpu")
         config = checkpoint["config"]
         out[label] = {
             "depth": config.get("depth"),
